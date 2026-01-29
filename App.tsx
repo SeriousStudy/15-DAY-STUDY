@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { DayProgress, UserProgress, UserRank, VitalityStats } from './types';
 import { generateDefaultSessions, RANKS, MOTIVATIONAL_QUOTES, START_DATE } from './constants';
@@ -44,15 +45,6 @@ const App: React.FC = () => {
   const [showCelebration, setShowCelebration] = useState(false);
   const [quote, setQuote] = useState(MOTIVATIONAL_QUOTES[0]);
 
-  // Load Google Identity Script
-  useEffect(() => {
-    const script = document.createElement("script");
-    script.src = "https://accounts.google.com/gsi/client";
-    script.async = true;
-    script.defer = true;
-    document.body.appendChild(script);
-  }, []);
-
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDarkMode);
     document.body.className = isDarkMode ? 'dark' : 'light';
@@ -60,11 +52,20 @@ const App: React.FC = () => {
   }, [isDarkMode]);
 
   useEffect(() => {
+  const script = document.createElement("script");
+  script.src = "https://accounts.google.com/gsi/client";
+  script.async = true;
+  script.defer = true;
+  document.body.appendChild(script);
+}, []);
+
+  useEffect(() => {
     try {
       const storageKey = 'accountancy_bootcamp_2026';
       const saved = localStorage.getItem(storageKey);
       if (saved) {
         const parsed = JSON.parse(saved);
+        // Migration for new Vitals feature
         if (!parsed.vitals) parsed.vitals = DEFAULT_VITALS;
         setProgress(parsed);
       } else {
@@ -106,23 +107,62 @@ const App: React.FC = () => {
     }
   }, [progress]);
 
-  const handleLogin = () => {
-    if (!window.google) {
-      alert("Google SDK not loaded yet. Try again.");
-      return;
-    }
+  const updateVitals = useCallback((newVitals: Partial<VitalityStats>) => {
+    setProgress(prev => prev ? ({
+      ...prev,
+      vitals: { ...prev.vitals, ...newVitals }
+    }) : null);
+  }, []);
 
-    window.google.accounts.id.initialize({
-      client_id: "YOUR_CLIENT_ID_HERE",
-      callback: (response: any) => {
-        console.log("Login Success:", response);
-        localStorage.setItem("is_logged_in", "true");
-        setIsLoggedIn(true);
-      },
+  const handleToggleTask = useCallback((dayNum: number, sessionId: string, taskId: string) => {
+    setProgress(prev => {
+      if (!prev) return null;
+      const newDays = prev.days.map(d => {
+        if (d.dayNumber !== dayNum) return d;
+        const newSessions = d.sessions.map(s => {
+          if (s.id !== sessionId) return s;
+          const newTasks = s.tasks.map(t => t.id === taskId ? { ...t, completed: !t.completed } : t);
+          const allTasksDone = newTasks.every(t => t.completed);
+          return { ...s, tasks: newTasks, completed: allTasksDone };
+        });
+        return { ...d, sessions: newSessions };
+      });
+
+      let totalPoints = 0;
+      newDays.forEach(d => {
+        d.sessions.forEach(s => {
+          if (s.completed) totalPoints += 100;
+          s.tasks.forEach(t => { if (t.completed) totalPoints += 25; });
+        });
+        if (d.mistakes.length > 5) totalPoints += 50;
+      });
+
+      const currentRank = RANKS.reduce((acc, r) => totalPoints >= r.threshold ? r.name : acc, UserRank.BEGINNER);
+      return { ...prev, days: newDays, points: totalPoints, rank: currentRank };
     });
+  }, []);
 
-    window.google.accounts.id.prompt();
-  };
+  const handleUpdateMistakes = useCallback((dayNum: number, value: string) => {
+    setProgress(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        days: prev.days.map(d => d.dayNumber === dayNum ? { ...d, mistakes: value } : d)
+      };
+    });
+  }, []);
+
+  const unlockedDay = useMemo(() => {
+    const today = new Date();
+    const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+    const startMidnight = new Date(START_DATE.getFullYear(), START_DATE.getMonth(), START_DATE.getDate()).getTime();
+    
+    if (todayMidnight < startMidnight) return 0;
+    
+    const diffTime = todayMidnight - startMidnight;
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    return Math.min(Math.max(diffDays, 0), 15);
+  }, []);
 
   const resetProgress = () => {
     if (window.confirm("Format entire bootcamp progress? This cannot be undone.")) {
@@ -130,6 +170,24 @@ const App: React.FC = () => {
       window.location.reload();
     }
   };
+
+  const handleLogin = () => {
+  if (!window.google) {
+    alert("Google SDK not loaded yet. Try again.");
+    return;
+  }
+
+  window.google.accounts.id.initialize({
+    client_id: "YOUR_CLIENT_ID_HERE",
+    callback: (response: any) => {
+      console.log("Login Success:", response);
+      localStorage.setItem("is_logged_in", "true");
+      setIsLoggedIn(true);
+    },
+  });
+
+  window.google.accounts.id.prompt();
+};
 
   if (!isLoggedIn) {
     return <Login onLogin={handleLogin} isDarkMode={isDarkMode} />;
@@ -146,23 +204,40 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen transition-all bg-[#f5f5f7] dark:bg-black text-black dark:text-white">
-      <Header 
-        points={progress.points} 
-        rank={progress.rank} 
-        isDarkMode={isDarkMode} 
-        setIsDarkMode={setIsDarkMode} 
-        resetProgress={resetProgress}
-        quote={quote}
-      />
-      <main className="max-w-[1400px] mx-auto py-10 px-4">
-        <Dashboard 
-          progress={progress} 
-          unlockedDay={1}
-          onSelectDay={() => {}}
-          onOpenSupport={() => {}}
-          onUpdateVitals={() => {}}
+      {currentView.type !== 'support' && (
+        <Header 
+          points={progress.points} 
+          rank={progress.rank} 
+          isDarkMode={isDarkMode} 
+          setIsDarkMode={setIsDarkMode} 
+          resetProgress={resetProgress}
+          quote={quote}
         />
+      )}
+      
+      <main className="max-w-[1400px] mx-auto py-10 px-4">
+        {currentView.type === 'dashboard' ? (
+          <Dashboard 
+            progress={progress} 
+            unlockedDay={unlockedDay}
+            onSelectDay={(num) => setCurrentView({ type: 'day', dayNum: num })} 
+            onOpenSupport={() => setCurrentView({ type: 'support' })}
+            onUpdateVitals={updateVitals}
+          />
+        ) : currentView.type === 'day' ? (
+          <DayDetails 
+            day={progress.days.find(d => d.dayNumber === currentView.dayNum)!} 
+            onBack={() => setCurrentView({ type: 'dashboard' })} 
+            onToggleTask={handleToggleTask}
+            onUpdateMistakes={handleUpdateMistakes}
+            onDayComplete={() => { setShowCelebration(true); setTimeout(() => setShowCelebration(false), 5000); }}
+          />
+        ) : (
+          <SupportChat onBack={() => setCurrentView({ type: 'dashboard' })} />
+        )}
       </main>
+
+      {currentView.type !== 'support' && <CasualChat />}
       {showCelebration && <Confetti />}
     </div>
   );
