@@ -58,6 +58,17 @@ const App: React.FC = () => {
   script.defer = true;
   document.body.appendChild(script);
 }, []);
+  useEffect(() => {
+  if (window.google) {
+    window.google.accounts.id.initialize({
+      client_id: "YOUR_CLIENT_ID",
+      callback: () => {
+        localStorage.setItem('is_logged_in', 'true');
+        setIsLoggedIn(true);
+      },
+    });
+  }
+}, []);
 
   useEffect(() => {
     try {
@@ -176,6 +187,10 @@ const App: React.FC = () => {
     alert("Google SDK not loaded yet. Try again.");
     return;
   }
+
+  window.google.accounts.id.prompt();
+};
+
 
   window.google.accounts.id.initialize({
     client_id: "YOUR_CLIENT_ID_HERE",
