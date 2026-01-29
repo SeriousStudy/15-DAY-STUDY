@@ -155,7 +155,7 @@ const SupportChat: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     setInput('');
     setIsTyping(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: "AIzaSyCPKK4YBQNyJJVB_eidndVU5Bn1CgQlXHE" });
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: text,
