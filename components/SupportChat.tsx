@@ -1,6 +1,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, Blob } from '@google/genai';
+import { askAI } from "../ai";
 
 const FAQS = [
   { q: "Goodwill formula?", a: "Goodwill = Average Profit × No. of years' purchase." },
@@ -160,7 +161,13 @@ const SupportChat: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         contents: text,
         config: { systemInstruction: "You are the Elite Accountancy Coach. Precise and concise." },
       });
-      setMessages(prev => [...prev, { type: 'bot', text: response.text || "Retry query." }]);
+      setMessages(prev => [
+  ...prev,
+  {
+    type: 'bot',
+    text: response?.text || "I'm thinking… ask again."
+  }
+]);
     } catch (error) {
       setMessages(prev => [...prev, { type: 'bot', text: "Coach offline. Check connection." }]);
     } finally { setIsTyping(false); }
