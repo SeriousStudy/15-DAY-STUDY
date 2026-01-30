@@ -1,267 +1,116 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { GoogleGenAI, LiveServerMessage, Modality, Blob } from '@google/genai';
-import { askAI } from "../ai";
+import { GoogleGenAI, GenerateContentResponse } from '@google/genai';
 
-const FAQS = [
-  { q: "Goodwill formula?", a: "Goodwill = Average Profit × No. of years' purchase." },
-  { q: "Partnership rules?", a: "Profit shared equal if no deed. No salary, no IOC. Loan int. @ 6% p.a." },
-  { q: "Sacrificing Ratio?", a: "Sacrificing Ratio = Old Ratio - New Ratio." },
-];
+async function callGenAI(prompt: string, retries = 3, delay = 1000): Promise<string> {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) throw new Error("API_KEY_MISSING");
 
-// Audio Encoding/Decoding Helpers
-function encode(bytes: Uint8Array) {
-  let binary = '';
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
-
-function decode(base64: string) {
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
-}
-
-async function decodeAudioData(data: Uint8Array, ctx: AudioContext, sampleRate: number, numChannels: number): Promise<AudioBuffer> {
-  const dataInt16 = new Int16Array(data.buffer);
-  const frameCount = dataInt16.length / numChannels;
-  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-  for (let channel = 0; channel < numChannels; channel++) {
-    const channelData = buffer.getChannelData(channel);
-    for (let i = 0; i < frameCount; i++) {
-      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+  const ai = new GoogleGenAI({ apiKey });
+  try {
+    const response: GenerateContentResponse = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: { 
+        systemInstruction: "You are the Elite Accountancy Consultant. Precise, expert, and professional. You help students master complex accounting concepts. No filler. Big Four style delivery.",
+        temperature: 0.6,
+      },
+    });
+    return response.text || "Protocol failure: Null response.";
+  } catch (error: any) {
+    if (retries > 0 && (error.status === 429 || error.status >= 500)) {
+      await new Promise(res => setTimeout(res, delay));
+      return callGenAI(prompt, retries - 1, delay * 2);
     }
+    throw error;
   }
-  return buffer;
 }
 
-const SupportChat: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+const SupportChat: React.FC<{ onBack: () => void; initialMessage?: string }> = ({ onBack, initialMessage }) => {
   const isDark = document.documentElement.classList.contains('dark');
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [configError, setConfigError] = useState(false);
   const [messages, setMessages] = useState<{ type: 'bot' | 'user', text: string }[]>([
-    { type: 'bot', text: "Elite Accountancy Coach active. Would you like to switch to Live Voice Mode for real-time tutoring?" }
+    { type: 'bot', text: "Elite Consultant Node initialized. State your audit requirement." }
   ]);
-  
-  // Live Voice States
-  const [isLiveMode, setIsLiveMode] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const sessionRef = useRef<any>(null);
-  const audioCtxRef = useRef<{ input: AudioContext; output: AudioContext } | null>(null);
-  const nextStartTimeRef = useRef(0);
-  const sourcesRef = useRef(new Set<AudioBufferSourceNode>());
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const stopLiveSession = useCallback(() => {
-    if (sessionRef.current) {
-      sessionRef.current.close();
-      sessionRef.current = null;
-    }
-    sourcesRef.current.forEach(s => s.stop());
-    sourcesRef.current.clear();
-    setIsLiveMode(false);
-    setIsConnecting(false);
-  }, []);
-
-  const startLiveSession = async () => {
-    if (isLiveMode) {
-      stopLiveSession();
-      return;
-    }
-
-    setIsConnecting(true);
+  const handleSendMessage = useCallback(async (text: string) => {
+    if (!text.trim() || isTyping) return;
+    setMessages(prev => [...prev, { type: 'user', text }]);
+    setInput('');
+    setIsTyping(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const inputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-      const outputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-      audioCtxRef.current = { input: inputCtx, output: outputCtx };
+      const result = await callGenAI(text);
+      setMessages(prev => [...prev, { type: 'bot', text: result }]);
+    } catch (error: any) {
+      if (error.message === "API_KEY_MISSING") {
+        setConfigError(true);
+      }
+      setMessages(prev => [...prev, { type: 'bot', text: "Consultant connection dropped. Verify API settings." }]);
+    } finally { setIsTyping(false); }
+  }, [isTyping]);
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      const sessionPromise = ai.live.connect({
-        model: 'gemini-2.5-flash-native-audio-preview-12-2025',
-        callbacks: {
-          onopen: () => {
-            setIsLiveMode(true);
-            setIsConnecting(false);
-            const source = inputCtx.createMediaStreamSource(stream);
-            const processor = inputCtx.createScriptProcessor(4096, 1, 1);
-            processor.onaudioprocess = (e) => {
-              const inputData = e.inputBuffer.getChannelData(0);
-              const l = inputData.length;
-              const int16 = new Int16Array(l);
-              for (let i = 0; i < l; i++) int16[i] = inputData[i] * 32768;
-              const pcmBlob: Blob = {
-                data: encode(new Uint8Array(int16.buffer)),
-                mimeType: 'audio/pcm;rate=16000',
-              };
-              sessionPromise.then(session => session.sendRealtimeInput({ media: pcmBlob }));
-            };
-            source.connect(processor);
-            processor.connect(inputCtx.destination);
-          },
-          onmessage: async (message: LiveServerMessage) => {
-            const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
-            if (base64Audio) {
-              const outCtx = audioCtxRef.current?.output;
-              if (outCtx) {
-                nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outCtx.currentTime);
-                const buffer = await decodeAudioData(decode(base64Audio), outCtx, 24000, 1);
-                const source = outCtx.createBufferSource();
-                source.buffer = buffer;
-                source.connect(outCtx.destination);
-                source.start(nextStartTimeRef.current);
-                nextStartTimeRef.current += buffer.duration;
-                sourcesRef.current.add(source);
-                source.onended = () => sourcesRef.current.delete(source);
-              }
-            }
-            if (message.serverContent?.interrupted) {
-              sourcesRef.current.forEach(s => s.stop());
-              sourcesRef.current.clear();
-              nextStartTimeRef.current = 0;
-            }
-          },
-          onclose: () => stopLiveSession(),
-          onerror: () => stopLiveSession(),
-        },
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } } },
-          systemInstruction: "You are the Elite Accountancy Coach. You are helping a student in a 15-day bootcamp. You are professional, encouraging, and precise.",
-        }
-      });
-      sessionRef.current = await sessionPromise;
-    } catch (err) {
-      console.error(err);
-      setIsConnecting(false);
-    }
-  };
+  useEffect(() => {
+    if (initialMessage && messages.length === 1) handleSendMessage(initialMessage);
+  }, [initialMessage, handleSendMessage]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
-  const handleSendMessage = async (text: string) => {
-    if (!text.trim() || isTyping || isLiveMode) return;
-    setMessages(prev => [...prev, { type: 'user', text }]);
-    setInput('');
-    setIsTyping(true);
-    try {
-      const ai = new GoogleGenAI({ apiKey: "AIzaSyCPKK4YBQNyJJVB_eidndVU5Bn1CgQlXHE" });
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: text,
-        config: { systemInstruction: "You are the Elite Accountancy Coach. Precise and concise." },
-      });
-      setMessages(prev => [
-  ...prev,
-  {
-    type: 'bot',
-    text: response?.text || "I'm thinking… ask again."
+  if (configError) {
+    return (
+      <div className={`fixed inset-0 z-[200] flex flex-col items-center justify-center p-10 text-center ${isDark ? 'bg-black text-white' : 'bg-white text-black'}`}>
+        <div className="w-20 h-20 bg-red-600 rounded-3xl flex items-center justify-center text-white text-4xl mb-8 shadow-2xl shadow-red-600/30">!</div>
+        <h2 className="text-4xl font-black tracking-tighter mb-4 uppercase">Protocol Offline</h2>
+        <p className="max-w-md text-sm opacity-60 leading-relaxed font-bold uppercase tracking-widest">
+          The variable <span className="text-red-600">API_KEY</span> was not detected. 
+          Please ensure your Vercel Environment Variables are set with Key: "API_KEY" and Value: "[Your Key]".
+        </p>
+        <button onClick={onBack} className="mt-12 px-12 py-5 bg-blue-600 text-white rounded-full font-black text-xs uppercase tracking-widest">Return to Dashboard</button>
+      </div>
+    );
   }
-]);
-    } catch (error) {
-      setMessages(prev => [...prev, { type: 'bot', text: "Coach offline. Check connection." }]);
-    } finally { setIsTyping(false); }
-  };
 
   return (
-    <div className={`fixed inset-0 z-[100] flex flex-col animate-pop ${isDark ? 'bg-black text-white' : 'bg-[#f5f5f7] text-black'}`}>
-      <div className="h-16 sm:h-20 border-b border-black/5 dark:border-white/10 flex items-center justify-between px-4 sm:px-8 backdrop-blur-xl sticky top-0 z-10 bg-inherit">
-        <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black italic shadow-lg">PP</div>
+    <div className={`fixed inset-0 z-[200] flex flex-col animate-pop ${isDark ? 'bg-black text-white' : 'bg-[#fafafa] text-zinc-950'}`}>
+      <div className="h-28 border-b border-white/5 flex items-center justify-between px-10 glass sticky top-0 bg-inherit/80">
+        <div className="flex items-center space-x-6">
+          <div className="w-14 h-14 bg-blue-600 rounded-3xl flex items-center justify-center text-white font-black italic shadow-2xl shadow-blue-500/20 text-2xl">PP</div>
           <div>
-            <h2 className="text-sm sm:text-lg font-bold tracking-tight">AI Coach</h2>
-            <div className="flex items-center space-x-1.5">
-              <span className={`w-1.5 h-1.5 rounded-full ${isLiveMode ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`}></span>
-              <p className="text-[8px] sm:text-[10px] font-bold text-blue-500 uppercase tracking-widest">
-                {isLiveMode ? 'Live Voice Active' : 'Active Protocol'}
-              </p>
+            <h2 className="text-2xl font-black tracking-tighter">Analytical Hub</h2>
+            <div className="flex items-center space-x-2">
+               <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+               <span className="text-[10px] font-black uppercase tracking-widest text-green-500">Node Sync Active</span>
             </div>
           </div>
         </div>
-        <div className="flex items-center space-x-2">
-          <button 
-            onClick={startLiveSession}
-            disabled={isConnecting}
-            className={`px-4 sm:px-6 h-8 sm:h-10 rounded-full font-bold text-[8px] sm:text-[10px] uppercase tracking-widest transition-all flex items-center space-x-2 ${
-              isLiveMode 
-              ? 'bg-red-600 text-white border-red-500' 
-              : isDark ? 'bg-white text-black border-transparent' : 'bg-black text-white border-transparent'
-            }`}
-          >
-            <span className={isLiveMode ? 'animate-pulse' : ''}>●</span>
-            <span>{isConnecting ? 'Connecting...' : isLiveMode ? 'End Live' : 'Go Live'}</span>
-          </button>
-          <button 
-            onClick={() => { stopLiveSession(); onBack(); }}
-            className={`px-4 h-8 sm:h-10 rounded-full font-bold text-[8px] sm:text-[10px] uppercase tracking-widest border ${isDark ? 'border-white/10' : 'border-black/5'}`}
-          >
-            Exit
-          </button>
-        </div>
+        <button onClick={onBack} className="px-8 py-4 rounded-full font-black text-[11px] uppercase tracking-widest border border-black/10 dark:border-white/10 hover:bg-white/5 transition-all">EXIT NODE</button>
       </div>
 
-      <div className="flex-1 flex flex-col max-w-4xl mx-auto w-full overflow-hidden relative">
-        <div className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-4 sm:space-y-6 hide-scrollbar pb-40">
-          {isLiveMode ? (
-            <div className="h-full flex flex-col items-center justify-center space-y-8 animate-fade">
-               <div className="relative">
-                  <div className="w-32 h-32 sm:w-48 sm:h-48 rounded-full bg-blue-600/10 flex items-center justify-center">
-                     <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full bg-blue-600 flex items-center justify-center animate-pulse shadow-2xl shadow-blue-500/50">
-                        <span className="text-white text-4xl">🎙️</span>
-                     </div>
-                  </div>
-                  <div className="absolute inset-0 rounded-full border-2 border-blue-500/20 animate-ping"></div>
-               </div>
-               <div className="text-center space-y-2">
-                  <h3 className="text-xl sm:text-2xl font-black">Listening...</h3>
-                  <p className="text-xs sm:text-sm font-bold opacity-40 uppercase tracking-widest">Speak naturally to your coach</p>
-               </div>
+      <div className="flex-1 max-w-6xl mx-auto w-full flex flex-col overflow-hidden relative">
+        <div className="flex-1 overflow-y-auto p-12 space-y-10 hide-scrollbar pb-52">
+          {messages.map((m, i) => (
+            <div key={i} className={`flex ${m.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[85%] p-8 rounded-[3rem] text-[15px] font-bold leading-relaxed border ${
+                m.type === 'user' ? 'bg-blue-600 text-white border-blue-500 rounded-br-none shadow-2xl' : 'bg-white/5 border-white/10 rounded-bl-none shadow-2xl backdrop-blur-3xl'
+              }`}>
+                {m.text}
+              </div>
             </div>
-          ) : (
-            <>
-              {messages.map((m, i) => (
-                <div key={i} className={`flex ${m.type === 'user' ? 'justify-end' : 'justify-start'} animate-fade`}>
-                  <div className={`max-w-[90%] sm:max-w-[85%] p-4 sm:p-6 rounded-2xl sm:rounded-3xl text-[11px] sm:text-sm font-medium leading-relaxed shadow-sm ${
-                    m.type === 'user' ? 'bg-blue-600 text-white' : isDark ? 'bg-zinc-900 text-zinc-100' : 'bg-white'
-                  }`}>
-                    {m.text}
-                  </div>
-                </div>
-              ))}
-              {isTyping && <div className="text-[10px] font-bold opacity-30 animate-pulse">Coach is thinking...</div>}
-            </>
-          )}
+          ))}
+          {isTyping && <div className="flex space-x-3 p-10"><div className="w-3 h-3 bg-blue-500 rounded-full animate-bounce"></div><div className="w-3 h-3 bg-blue-500 rounded-full animate-bounce [animation-delay:0.2s]"></div><div className="w-3 h-3 bg-blue-500 rounded-full animate-bounce [animation-delay:0.4s]"></div></div>}
           <div ref={messagesEndRef} />
         </div>
 
-        {!isLiveMode && (
-          <div className={`absolute bottom-0 left-0 right-0 p-4 sm:p-6 backdrop-blur-xl border-t ${isDark ? 'bg-black/80 border-white/5' : 'bg-white/80 border-black/5'}`}>
-            <div className="mb-3 flex space-x-2 overflow-x-auto hide-scrollbar">
-              {FAQS.map((faq, i) => (
-                <button key={i} onClick={() => handleSendMessage(faq.q)} className="whitespace-nowrap px-3 py-1.5 rounded-full text-[9px] font-bold border dark:bg-zinc-900 dark:text-zinc-400">
-                  {faq.q}
-                </button>
-              ))}
-            </div>
-            <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(input); }} className="relative flex items-center">
-              <input 
-                type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Query Coach..."
-                className={`w-full py-4 pl-6 pr-14 rounded-full border font-semibold text-xs sm:text-sm outline-none ${isDark ? 'bg-zinc-950 border-white/10' : 'bg-zinc-50'}`}
-              />
-              <button type="submit" disabled={!input.trim()} className="absolute right-2 w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center">↑</button>
-            </form>
-          </div>
-        )}
+        <div className="absolute bottom-0 left-0 right-0 p-12 glass bg-inherit/80 border-t border-black/5 dark:border-white/5">
+          <form onSubmit={e => { e.preventDefault(); handleSendMessage(input); }} className="relative max-w-5xl mx-auto">
+            <input value={input} onChange={e => setInput(e.target.value)} placeholder="Submit Query to Analytical Hub..." className={`w-full py-8 px-12 rounded-[2.5rem] border-2 outline-none font-black text-lg transition-all ${isDark ? 'bg-black border-white/5 focus:border-blue-600 text-white' : 'bg-white border-black/5 focus:border-blue-600 text-black'}`} />
+            <button type="submit" className="absolute right-5 top-4 w-16 h-16 rounded-[1.5rem] bg-blue-600 flex items-center justify-center text-white shadow-2xl hover:scale-105 transition-transform">↑</button>
+          </form>
+        </div>
       </div>
     </div>
   );
