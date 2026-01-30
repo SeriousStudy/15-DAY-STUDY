@@ -9,71 +9,80 @@ interface HeaderProps {
   setIsDarkMode: (v: boolean) => void;
   resetProgress: () => void;
   quote: string;
+  userProfile?: { name: string; picture: string } | null;
+  onSearchClick: () => void;
+  onLiveClick: () => void;
+  isApiReady?: boolean;
 }
 
-const Header: React.FC<HeaderProps> = ({ points, rank, isDarkMode, setIsDarkMode, resetProgress, quote }) => {
-  const [time, setTime] = useState(new Date());
+const Header: React.FC<HeaderProps> = ({ points, rank, isDarkMode, setIsDarkMode, resetProgress, quote, userProfile, onSearchClick, onLiveClick, isApiReady = true }) => {
+  const [liveUsers, setLiveUsers] = useState(742);
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setTime(new Date());
-    }, 1000);
-    return () => clearInterval(timer);
+    const interval = setInterval(() => {
+      setLiveUsers(prev => {
+        const change = Math.floor(Math.random() * 11) - 5;
+        return Math.min(1000, Math.max(1, prev + change));
+      });
+    }, 4000);
+    return () => clearInterval(interval);
   }, []);
 
-  const formattedTime = time.toLocaleTimeString('en-IN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true
-  });
-
   return (
-    <header className={`sticky top-0 z-50 w-full ${isDarkMode ? 'bg-black/80 border-white/10' : 'bg-[#f5f5f7]/80 border-black/5'} backdrop-blur-xl border-b`}>
-      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 h-16 sm:h-20 flex items-center justify-between">
-        <div className="flex items-center space-x-3 cursor-pointer" onClick={() => window.location.reload()}>
-          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-blue-600 rounded-lg sm:rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
-            <span className="text-white font-black italic text-sm sm:text-base">PP</span>
+    <header className={`sticky top-0 z-[100] w-full border-b transition-all duration-700 ${isDarkMode ? 'bg-black/80 border-white/5' : 'bg-white/80 border-black/5'} backdrop-blur-3xl`}>
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 h-20 flex items-center justify-between">
+        <div className="flex items-center space-x-4 group cursor-pointer" onClick={() => window.location.reload()}>
+          <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-600 rounded-xl sm:rounded-2xl flex items-center justify-center shadow-xl shadow-blue-500/30 group-hover:rotate-12 transition-transform">
+             <span className="text-white font-black italic text-lg sm:text-xl">A</span>
           </div>
-          <div className="block">
-            <h1 className={`text-sm sm:text-lg font-bold tracking-tight leading-none ${isDarkMode ? 'text-white' : 'text-[#1d1d1f]'}`}>
-              Bootcamp
-            </h1>
-            <p className="text-[8px] sm:text-[10px] font-bold text-blue-500 uppercase tracking-widest mt-0.5 sm:mt-1">Elite 2026</p>
+          <div>
+            <h1 className="text-sm sm:text-lg font-black tracking-tight leading-none uppercase text-current">Elite Protocol</h1>
+            <div className="flex items-center space-x-2 mt-1">
+               <span className={`w-1.5 h-1.5 rounded-full ${isApiReady ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
+               <span className={`text-[8px] sm:text-[9px] font-black uppercase tracking-widest ${isApiReady ? 'text-green-500' : 'text-red-500'}`}>
+                 {isApiReady ? `${liveUsers} Live Now` : 'PROTOCOL OFFLINE'}
+               </span>
+            </div>
           </div>
         </div>
 
-        <div className="hidden lg:flex flex-col items-center flex-1 mx-4">
-          <div className={`text-sm font-black tracking-widest tabular-nums ${isDarkMode ? 'text-white' : 'text-black'}`}>
-            {formattedTime}
-          </div>
-          <p className={`text-[9px] font-bold uppercase tracking-[0.3em] mt-1 line-clamp-1 ${isDarkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
-            {quote}
-          </p>
+        <div className="hidden lg:flex items-center space-x-12 px-12 border-x border-black/5 dark:border-white/5 h-full">
+           <div className="text-center">
+              <p className="text-[9px] font-black uppercase tracking-[0.3em] opacity-30 text-current">Analytical XP</p>
+              <p className="text-lg font-black tabular-nums text-blue-600 leading-none mt-1">{points}</p>
+           </div>
+           <div className="text-center">
+              <p className="text-[9px] font-black uppercase tracking-[0.3em] opacity-30 text-current">Current Rank</p>
+              <p className="text-lg font-black uppercase tracking-tight text-current leading-none mt-1">{rank}</p>
+           </div>
         </div>
 
         <div className="flex items-center space-x-2 sm:space-x-4">
-          <div className="hidden sm:block">
-            <MusicPlayer />
-          </div>
+          <button 
+            onClick={onLiveClick}
+            disabled={!isApiReady}
+            className={`flex items-center space-x-2 px-4 py-2 rounded-full transition-all shadow-lg group ${isApiReady ? 'bg-red-600 hover:bg-red-700 text-white shadow-red-600/20' : 'bg-zinc-500/20 text-zinc-500 cursor-not-allowed grayscale'}`}
+          >
+            <span className={`w-2 h-2 rounded-full bg-white ${isApiReady ? 'animate-ping' : ''}`}></span>
+            <span className="text-[10px] font-black uppercase tracking-widest">Live Audit</span>
+          </button>
           
-          <div className="flex flex-col items-end mr-1 sm:mr-2">
-            <span className={`text-[10px] sm:text-sm font-black ${isDarkMode ? 'text-white' : 'text-black'}`}>{points} XP</span>
-            <span className={`text-[7px] sm:text-[9px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-blue-500' : 'text-blue-600'}`}>{rank}</span>
-          </div>
-
-          <div className="flex items-center space-x-1 sm:space-x-2">
+          <MusicPlayer />
+          
+          <div className="flex items-center space-x-1.5 sm:space-x-2">
             <button 
-              onClick={() => setIsDarkMode(!isDarkMode)}
-              className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all hover-pop text-xs sm:text-base ${isDarkMode ? 'bg-white text-black' : 'bg-black text-white'}`}
+              onClick={onSearchClick} 
+              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${isDarkMode ? 'bg-white/5 hover:bg-white/10 text-white' : 'bg-black/5 hover:bg-black/10 text-black'}`}
+              title="Search System"
+            >
+              🔍
+            </button>
+            <button 
+              onClick={() => setIsDarkMode(!isDarkMode)} 
+              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${isDarkMode ? 'bg-white text-black' : 'bg-black text-white shadow-xl'}`}
+              title="Toggle Theme"
             >
               {isDarkMode ? '☼' : '☾'}
-            </button>
-
-            <button 
-              onClick={resetProgress}
-              className={`text-[8px] sm:text-[10px] font-bold uppercase tracking-widest px-2 sm:px-4 h-8 sm:h-10 rounded-full transition-all ${isDarkMode ? 'text-zinc-600 border border-white/10 hover:bg-red-500 hover:text-white' : 'text-zinc-400 border border-black/5 hover:bg-red-500 hover:text-white'}`}
-            >
-              Reset
             </button>
           </div>
         </div>
