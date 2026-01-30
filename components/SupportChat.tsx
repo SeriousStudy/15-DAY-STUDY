@@ -3,8 +3,17 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { GoogleGenAI, GenerateContentResponse } from '@google/genai';
 
 async function callGenAI(prompt: string, retries = 3, delay = 1000): Promise<string> {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) throw new Error("API_KEY_MISSING");
+  let apiKey: string | undefined;
+  try {
+    apiKey = typeof process !== 'undefined' ? process.env?.API_KEY : undefined;
+  } catch (e) {
+    apiKey = undefined;
+  }
+
+  if (!apiKey) {
+    console.error("PROTOCOL FAILURE: API_KEY environment variable is undefined.");
+    throw new Error("API_KEY_MISSING");
+  }
 
   const ai = new GoogleGenAI({ apiKey });
   try {
@@ -48,7 +57,7 @@ const SupportChat: React.FC<{ onBack: () => void; initialMessage?: string }> = (
       if (error.message === "API_KEY_MISSING") {
         setConfigError(true);
       }
-      setMessages(prev => [...prev, { type: 'bot', text: "Consultant connection dropped. Verify API settings." }]);
+      setMessages(prev => [...prev, { type: 'bot', text: "Consultant connection dropped. Verify API settings in Vercel." }]);
     } finally { setIsTyping(false); }
   }, [isTyping]);
 
@@ -64,7 +73,7 @@ const SupportChat: React.FC<{ onBack: () => void; initialMessage?: string }> = (
     return (
       <div className={`fixed inset-0 z-[200] flex flex-col items-center justify-center p-10 text-center ${isDark ? 'bg-black text-white' : 'bg-white text-black'}`}>
         <div className="w-20 h-20 bg-red-600 rounded-3xl flex items-center justify-center text-white text-4xl mb-8 shadow-2xl shadow-red-600/30">!</div>
-        <h2 className="text-4xl font-black tracking-tighter mb-4 uppercase">Protocol Offline</h2>
+        <h2 className="text-4xl font-black tracking-tighter mb-4 uppercase text-red-600">Protocol Offline</h2>
         <p className="max-w-md text-sm opacity-60 leading-relaxed font-bold uppercase tracking-widest">
           The variable <span className="text-red-600">API_KEY</span> was not detected. 
           Please ensure your Vercel Environment Variables are set with Key: "API_KEY" and Value: "[Your Key]".
