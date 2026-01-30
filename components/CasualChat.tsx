@@ -35,13 +35,19 @@ const CasualChat: React.FC = () => {
     e?.preventDefault();
     if (!input.trim() || isTyping) return;
 
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+      setMessages(prev => [...prev, { type: 'bot', text: "Critical Config Error: API_KEY is missing from your Vercel settings. Switch Key and Value columns!" }]);
+      return;
+    }
+
     const userText = input.trim();
     setMessages(prev => [...prev, { type: 'user', text: userText }]);
     setInput('');
     setIsTyping(true);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey });
       
       const isImageRequest = /\b(generate|create|draw|make|show|picture|image|photo|art|sketch)\b/i.test(userText);
 
@@ -80,7 +86,7 @@ const CasualChat: React.FC = () => {
       }
     } catch (err) {
       console.error(err);
-      setMessages(prev => [...prev, { type: 'bot', text: "Network glitch. Try again in a bit!" }]);
+      setMessages(prev => [...prev, { type: 'bot', text: "Network glitch. Ensure your API Key is correct in Vercel." }]);
     } finally {
       setIsTyping(false);
     }
@@ -90,7 +96,6 @@ const CasualChat: React.FC = () => {
     <div className={`fixed z-[100] transition-all duration-300 ${isOpen ? 'inset-0 sm:inset-auto sm:bottom-8 sm:right-8' : 'bottom-8 right-8'}`}>
       {isOpen && (
         <div className={`flex flex-col h-full sm:h-[500px] w-full sm:w-[380px] sm:rounded-[2.5rem] shadow-2xl border transition-all animate-pop origin-bottom-right ${isDark ? 'bg-zinc-950 border-white/10' : 'bg-white border-black/5'}`}>
-          {/* Header */}
           <div className="p-5 sm:p-6 border-b border-black/5 dark:border-white/5 flex items-center justify-between bg-blue-600 sm:rounded-t-[2.5rem]">
             <div className="flex items-center space-x-3">
               <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white text-xs">✨</div>
@@ -102,7 +107,6 @@ const CasualChat: React.FC = () => {
             <button onClick={() => setIsOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-all">✕</button>
           </div>
 
-          {/* Messages */}
           <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 hide-scrollbar">
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.type === 'user' ? 'justify-end' : 'justify-start'} animate-fade`}>
@@ -135,7 +139,6 @@ const CasualChat: React.FC = () => {
             )}
           </div>
 
-          {/* Input */}
           <form onSubmit={handleSendMessage} className={`p-4 border-t ${isDark ? 'border-white/5' : 'border-black/5'} bg-transparent mb-safe`}>
             <div className="relative">
               <input 
@@ -157,7 +160,6 @@ const CasualChat: React.FC = () => {
         </div>
       )}
 
-      {/* FAB - Adjusted position for mobile to not interfere with safe areas */}
       {!isOpen && (
         <button 
           onClick={() => setIsOpen(true)}
