@@ -37,8 +37,15 @@ const App: React.FC = () => {
   const [showCelebration, setShowCelebration] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
 
-  // API Connectivity Check
-  const isApiReady = !!process.env.API_KEY;
+  // SAFE API KEY CHECK (Prevents crashes if process is undefined)
+  const getApiKey = () => {
+    try {
+      return typeof process !== 'undefined' ? process.env?.API_KEY : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const isApiReady = !!getApiKey();
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDarkMode);
@@ -92,6 +99,51 @@ const App: React.FC = () => {
   if (!isLoggedIn) return <Login onLogin={(p) => { setUserProfile(p); localStorage.setItem('user_profile', JSON.stringify(p)); localStorage.setItem('is_logged_in', 'true'); setIsLoggedIn(true); }} isDarkMode={isDarkMode} />;
   if (!progress) return null;
 
+  // DIAGNOSTIC OVERLAY
+  if (!isApiReady) {
+    return (
+      <div className={`fixed inset-0 z-[500] flex flex-col items-center justify-center p-8 transition-colors ${isDarkMode ? 'bg-black text-white' : 'bg-white text-black'}`}>
+        <div className="w-full max-w-2xl bg-red-600/5 border border-red-600/20 p-12 rounded-[3.5rem] shadow-2xl space-y-10 animate-pop">
+           <div className="flex items-center space-x-6">
+              <div className="w-16 h-16 bg-red-600 rounded-2xl flex items-center justify-center text-white text-3xl font-black">!</div>
+              <div>
+                <h2 className="text-3xl font-black tracking-tighter uppercase">Protocol: Connection Interrupted</h2>
+                <p className="text-xs font-bold opacity-40 uppercase tracking-widest mt-1">Diagnostic System Active</p>
+              </div>
+           </div>
+
+           <div className="space-y-6">
+              <div className="p-6 rounded-2xl bg-red-600/10 border border-red-600/10">
+                 <p className="text-[10px] font-black uppercase tracking-widest text-red-600 mb-2">Error Log</p>
+                 <p className="text-sm font-mono opacity-80">Variable [API_KEY] not found in client environment.</p>
+              </div>
+
+              <div className="space-y-4">
+                 <p className="text-[10px] font-black uppercase tracking-widest opacity-30">Mandatory Resolution Steps</p>
+                 <div className="grid gap-3">
+                    {[
+                      { step: "01", task: "Verify Vercel Variable Name is exactly 'API_KEY'" },
+                      { step: "02", task: "Ensure the Value is your Gemini secret key (AIzaSy...)" },
+                      { step: "03", task: "CRITICAL: Go to Deployments > Click latest > REDEPLOY" }
+                    ].map(s => (
+                      <div key={s.step} className="flex items-center space-x-4 p-4 rounded-xl border border-current opacity-60">
+                         <span className="font-black text-xs">{s.step}</span>
+                         <span className="font-bold text-xs uppercase tracking-tight">{s.task}</span>
+                      </div>
+                    ))}
+                 </div>
+              </div>
+           </div>
+
+           <button onClick={() => window.location.reload()} className="w-full py-6 bg-red-600 text-white rounded-full font-black text-xs uppercase tracking-widest hover:scale-105 active:scale-95 transition-all shadow-xl shadow-red-600/30">
+             Retry System Sync
+           </button>
+        </div>
+        <p className="mt-10 text-[9px] font-black uppercase tracking-[0.5em] opacity-20">Elite Accountancy Protocol v3.0 Diagnostic Tool</p>
+      </div>
+    );
+  }
+
   return (
     <div className={`min-h-screen transition-all duration-1000 ${isDarkMode ? 'bg-black text-white' : 'bg-[#fbfbfd] text-zinc-950'}`}>
       <Header 
@@ -108,24 +160,6 @@ const App: React.FC = () => {
       />
       
       <main className="w-full mx-auto relative">
-        {!isApiReady && currentView.type === 'dashboard' && (
-          <div className="max-w-[1600px] mx-auto px-8 pt-8">
-            <div className="bg-red-600/10 border border-red-600/30 p-8 rounded-[2.5rem] flex flex-col md:flex-row items-center justify-between gap-6 animate-pulse">
-              <div className="flex items-center space-x-6">
-                <div className="w-16 h-16 bg-red-600 rounded-2xl flex items-center justify-center text-white text-2xl font-black">!</div>
-                <div>
-                  <h3 className="text-xl font-black uppercase tracking-tighter text-red-600">Protocol Connectivity Alert</h3>
-                  <p className="text-xs font-bold opacity-60 uppercase tracking-widest mt-1">Vercel variable 'API_KEY' is missing or restricted.</p>
-                </div>
-              </div>
-              <div className="flex flex-col text-right">
-                <p className="text-[10px] font-black uppercase tracking-widest mb-2 opacity-40">System Diagnostics</p>
-                <p className="text-[10px] font-bold text-red-600 uppercase tracking-widest">Ensure Vercel Variable is exactly: <span className="bg-red-600 text-white px-2 py-0.5 rounded ml-1">API_KEY</span></p>
-              </div>
-            </div>
-          </div>
-        )}
-
         {currentView.type === 'dashboard' ? (
           <Dashboard progress={progress} unlockedDay={unlockedDay} onSelectDay={(n) => setCurrentView({ type: 'day', dayNum: n })} onOpenSupport={() => setCurrentView({ type: 'support' })} onUpdateVitals={updateVitals} />
         ) : currentView.type === 'day' ? (
